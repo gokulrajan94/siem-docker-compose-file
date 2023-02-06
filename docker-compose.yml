@@ -1,225 +1,71 @@
-version: "3.7"
-services:
-  thehive:
-    image: strangebee/thehive:latest
-    container_name: thehive
-    restart: unless-stopped
-    depends_on:
-      - cassandra
-      - elasticsearch
-      - minio
-      - cortex
-    mem_limit: 1500m
-    ports:
-      - "0.0.0.0:9000:9000"
-    environment:
-      - JVM_OPTS="-Xms1024M -Xmx1024M"
-    command:
-      - --secret
-      - "lab123456789"
-      - "--cql-hostnames"
-      - "cassandra"
-      - "--index-backend"
-      - "elasticsearch"
-      - "--es-hostnames"
-      - "elasticsearch"
-      - "--s3-endpoint"
-      - "http://minio:9002"
-      - "--s3-access-key"
-      - "minioadmin"
-      - "--s3-secret-key"
-      - "minioadmin"
-      - "--s3-use-path-access-style"
-      #- "--no-config-cortex"
-      - "--cortex-port"
-      - "9001"
-      - "--cortex-keys"
-      - "Zuij1zaH3qwDUSmXKH0nEjComNJUb+sE" #remember to change this to your API key
-    volumes:
-      - ./thehive/conf/application.conf:/etc/thehive/application.conf 
-    networks:
-      - SOC_NET
-
-  cassandra:
-    image: 'cassandra:4'
-    container_name: cassandra
-    restart: unless-stopped
-    mem_limit: 1000m
-    ports:
-      - "0.0.0.0:9042:9042"
-    environment:
-      - CASSANDRA_CLUSTER_NAME=TheHive
-    volumes:
-      - cassandradata:/var/lib/cassandra
-    networks:
-      - SOC_NET
-
-  elasticsearch:
-    image: wazuh/wazuh-elasticsearch:3.13.6_7.9.2
-    container_name: elasticsearch
-    restart: unless-stopped
-    mem_limit: 512m
-    ports:
-      - "0.0.0.0:9200:9200"
-    environment:
-      - discovery.type=single-node
-      - xpack.security.enabled=false
-      - cluster.name=elastic
-      - http.host=0.0.0.0
-      - "ES_JAVA_OPTS=-Xms256m -Xmx256m"
-    volumes:
-      - elasticsearchdata:/usr/share/elasticsearch/data
-    networks:
-      - SOC_NET
-
-  wazuh:
-    image: wazuh/wazuh:3.13.6_7.9.2
-    container_name: wazuh
-    hostname: wazuh-manager
-    restart: unless-stopped
-    ports:
-      - "1514:1514/udp"
-      - "1515:1515"
-      - "514:514/udp"
-      - "55000:55000"
-    networks:
-      - SOC_NET
-
-  Kibana:
-    image: wazuh/wazuh-kibana:3.13.6_7.9.2
-    container_name: kibana
-    restart: unless-stopped       
-    ports:
-    - '5601:5601'
-    environment:
-      - ELASTICSEARCH_URL=http://elasticsearch:9200  
-    depends_on:
-      - elasticsearch 
-    links:
-      - elasticsearch:elasticsearch
-      - wazuh:wazuh
-    networks:
-      - SOC_NET
-      
-  Logstash:
-    image: logstash:7.9.2
-    container_name: logstash
-    restart: unless-stopped
-    volumes:
-    - ./logstash/:/logstash_dir
-    command: logstash -f /logstash_dir/logstash.conf 
-    depends_on:
-      - elasticsearch
-    ports:
-    - '9600:9600'
-    environment:
-      LS_JAVA_OPTS: "-Xmx256m -Xms256m"    
-    networks:
-      - SOC_NET
-      
-  minio:
-    image: quay.io/minio/minio
-    container_name: minio
-    restart: unless-stopped
-    command: ["minio", "server", "/data", "--console-address", ":9002"]
-    environment:
-      - MINIO_ROOT_USER=minioadmin
-      - MINIO_ROOT_PASSWORD=minioadmin
-    ports:
-      - "0.0.0.0:9002:9002"
-    volumes:
-      - "miniodata:/data"
-    networks:
-      - SOC_NET
-
-  cortex:
-    image: thehiveproject/cortex:latest
-    container_name: cortex
-    restart: unless-stopped
-    environment:
-      - job_directory=/opt/cortex/jobs
-    volumes:
-      - cortexdata:/var/run/docker.sock
-      - cortexdata:/opt/cortex/jobs
-      - cortexdata:/var/log/cortex
-      - cortexdata:/cortex/application.conf
-    depends_on:
-      - elasticsearch
-    ports:
-      - "0.0.0.0:9001:9001"
-    networks:
-      - SOC_NET
-
-  misp:
-    image: coolacid/misp-docker:core-latest
-    container_name: misp
-    restart: unless-stopped
-    depends_on: 
-      - misp_mysql
-    ports:
-      - "0.0.0.0:80:80"
-      - "0.0.0.0:443:443"
-    volumes:
-      - "./server-configs/:/var/www/MISP/app/Config/"
-      - "./logs/:/var/www/MISP/app/tmp/logs/"
-      - "./files/:/var/www/MISP/app/files"
-      - "./ssl/:/etc/nginx/certs"
-    environment:
-      - MYSQL_HOST=misp_mysql
-      - MYSQL_DATABASE=mispdb
-      - MYSQL_USER=mispuser
-      - MYSQL_PASSWORD=misppass
-      - MISP_ADMIN_EMAIL=mispadmin@lab.local
-      - MISP_ADMIN_PASSPHRASE=mispadminpass
-      - MISP_BASEURL=localhost
-      - TIMEZONE=Europe/London
-      - "INIT=true"         
-      - "CRON_USER_ID=1"   
-      - "REDIS_FQDN=redis"
-      - "HOSTNAME=https://localhost"
-    networks:
-      - SOC_NET
-
-  misp_mysql:
-    image: mysql/mysql-server:5.7
-    container_name: misp_mysql
-    restart: unless-stopped
-    volumes:
-      - mispsqldata:/var/lib/mysql   
-    environment:
-      - MYSQL_DATABASE=mispdb
-      - MYSQL_USER=mispuser
-      - MYSQL_PASSWORD=misppass
-      - MYSQL_ROOT_PASSWORD=mispass
-    networks:
-      - SOC_NET
-
-  redis:
-    image: redis:5.0.6
-    container_name: redis
-    networks:
-      - SOC_NET
-
-  misp-modules:
-    image: coolacid/misp-docker:modules-latest
-    container_name: misp-modules 
-    environment:
-      - "REDIS_BACKEND=redis"
-    depends_on:
-      - redis
-      - misp_mysql
-    networks:
-      - SOC_NET   
-
-volumes:
-  miniodata:
-  cassandradata:
-  elasticsearchdata:
-  cortexdata:
-  thehivedata:
-  mispsqldata:
+  version: "2"
   
-
-networks:
-    SOC_NET:
-          driver: bridge
+  networks:
+    elastic:
+      driver: bridge
+      
+  volumes:
+    elasticsearch:
+      driver: local
+      
+  services:
+    elasticsearch:
+      image: docker.elastic.co/elasticsearch/elasticsearch:7.15.0
+      restart: unless-stopped
+      environment:
+        - "discovery.type=single-node"
+        - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+        - "xpack.security.enabled=true"
+        - "xpack.security.authc.api_key.enabled=true"
+        - "ELASTIC_PASSWORD=admin"
+      ulimits:
+        memlock:
+          soft: -1
+          hard: -1
+      volumes:
+        - elasticsearch:/usr/share/elasticsearch/data
+      ports:
+        - 0.0.0.0:9200:9200
+      networks:
+        - elastic
+      
+    ent-search:    
+      image: docker.elastic.co/enterprise-search/enterprise-search:7.15.0
+      restart: unless-stopped
+      depends_on:
+        - "elasticsearch"
+      environment:
+        - "JAVA_OPTS=-Xms512m-Xmx512m"
+        - "ENT_SEARCH_DEFAULT_PASSWORD=admin"
+        - "elasticsearch.username=elastic"
+        - "elasticsearch.password=admin"
+        - "elastisearch.host=http://elasticsearch:9200"
+        - "allow_es_settings_modification=true"
+        - "secret_management.encryption_keys=4a2cd3f81d39bf28738c10db0ca782095ffac07279561809eecc722e0c20eb09"
+        - "elasticsearch.startup_retry.interval=15"
+      ports:
+        - 0.0.0.0:3002:3002
+      networks:
+        - elastic
+        
+    kibana:    
+      image: docker.elastic.co/kibana/kibana:7.15.0
+      restart: unless-stopped
+      depends_on:
+        - "elasticsearch"
+        - "ent-search"
+      ports:
+        - 0.0.0.0:5601:5601
+      environment:
+        ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+        ENTERPRISESEARCH_HOST: http://ent-search:3002
+        ELASTICSEARCH_USERNAME: elastic
+        ELASTICSEARCH_PASSWORD: admin
+        XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY: "X5rtEXBA3Js1sNMu7VpY4QKIEBpjwzkb231"
+      
+      networks:
+        - elastic
+        
+        
+        
+      
